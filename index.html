@@ -1,0 +1,188 @@
+<!DOCTYPE html><html lang="uk"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Завірюха — втеча з будинку</title>
+<style>
+:root{color-scheme:dark;--bg:#05070c;--fg:#e8ecf4;--ac:#ffcf5a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{display:block;position:fixed;inset:0;width:100%;height:100%}
+#vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,.88));transition:box-shadow .3s}
+#vig.d{box-shadow:inset 0 0 130px 35px rgba(190,0,0,.6)}
+#hud{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:14px;font-size:14px;line-height:1.5;text-shadow:0 1px 4px #000}
+#sb{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);right:14px;width:80px;height:6px;background:#fff3;border-radius:3px}#stam{height:100%;width:100%;background:var(--ac);border-radius:3px}
+#toast{position:fixed;top:22%;left:0;right:0;text-align:center;font-size:17px;padding:0 20px;text-shadow:0 1px 6px #000;opacity:0;transition:opacity .4s;pointer-events:none}
+#joy{position:fixed;left:calc(env(safe-area-inset-left,0px) + 24px);bottom:calc(env(safe-area-inset-bottom,0px) + 28px);width:120px;height:120px;border-radius:50%;border:2px solid #fff4;background:#ffffff10}
+#knob{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:#fff6}
+#actw{position:fixed;right:20px;bottom:calc(env(safe-area-inset-bottom,0px) + 28px);display:flex;flex-direction:column;align-items:center;gap:8px;max-width:46vw}
+#prompt{font-size:14px;text-align:center;text-shadow:0 1px 4px #000;min-height:18px}
+#row{display:flex;gap:10px;align-items:flex-end}
+button{font:inherit;color:var(--bg);background:var(--ac);border:0;border-radius:40px;padding:14px 26px;font-weight:700;font-size:17px}
+#act,#run{width:84px;height:84px;border-radius:50%;padding:0;opacity:.45}#run{width:64px;height:64px;font-size:14px;background:#9fc4ff}
+#act.on{opacity:1}
+#ov,#kp{position:fixed;inset:0;background:rgba(5,7,12,.93);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;gap:14px}
+#kp{display:none;background:rgba(5,7,12,.8)}#digs{display:flex;gap:18px}#digs div{display:flex;flex-direction:column;align-items:center;gap:8px}#digs b{font-size:44px}#digs button{padding:8px 18px}
+#ov h1{margin:0;font-size:34px;letter-spacing:1px}#ov p{max-width:430px;line-height:1.5;margin:0;color:#b9c2d4}
+</style></head><body>
+<canvas id="c"></canvas><div id="vig"></div>
+<div id="hud"></div><div id="sb"><div id="stam"></div></div><div id="toast"></div>
+<div id="joy"><div id="knob"></div></div>
+<div id="actw"><div id="prompt"></div><div id="row"><button id="run">БІГ</button><button id="act">ДІЯ</button></div></div>
+<div id="kp"><div>Код сейфа</div><div id="digs"></div><button id="ok">ВІДЧИНИТИ</button><button id="cl" style="background:#555;color:#fff">Закрити</button></div>
+<div id="ov"><h1>ЗАВІРЮХА</h1>
+<p>Ти прокинувся в чужому будинку посеред снігової бурі. Двері замкнені, а Господар обходить кімнати.</p>
+<p>Знайди <b>3 запобіжники</b> і встав їх у щиток. Знайди записку з кодом, відчини сейф і візьми ключ. Тоді відімкни вихідні двері. Ховайся в шафах. Біг шумить, і Господар його чує.</p>
+<p style="font-size:13px">Рух: лівий джойстик · Огляд: тягни пальцем · ДІЯ: підібрати, ввімкнути, сховатись<br>ПК: WASD, миша, E, Shift (біг)</p>
+<button id="go">ПОЧАТИ</button></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const S=4,H=3.4;
+const M=["#####################","#LL.P.#K...K#T.....K#","#.....#.N...#.......#","#..F.K#...W.#.......#","#.....#.....#...F...#","###.#####.######.####","#...................#","###.#####.######.####","#.W...#.....#.....B.#","#....K#..F..#..K....#","#.....#.....#......S#","#.....#.W...#K......#","#########D###########"];
+const W=M[0].length,HR=M.length,$=id=>document.getElementById(id),rnd=Math.random;
+const solid=(c,r)=>{const ch=(M[r]||'')[c];return ch===undefined||'#WBDLKTS'.includes(ch)};
+const cell=(x,z)=>[Math.floor(x/S),Math.floor(z/S)],ctr=(c,r)=>[c*S+S/2,r*S+S/2];
+const renderer=new THREE.WebGLRenderer({canvas:$('c'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x03050a);scene.fog=new THREE.FogExp2(0x03050a,.045);
+const cam=new THREE.PerspectiveCamera(72,1,.1,80);cam.rotation.order='YXZ';scene.add(cam);
+function resize(){renderer.setSize(innerWidth,innerHeight,false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();
+scene.add(new THREE.HemisphereLight(0x8899bb,0x221a14,.45));
+const spot=new THREE.SpotLight(0xfff2d0,1.9,24,.55,.5,1.2);spot.target.position.set(0,0,-1);cam.add(spot,spot.target);
+function tex(w,h,f,rx,ry){const c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d');f(g,w,h);
+ const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rx||1,ry||1);return t}
+const grain=(g,w,h,n,a)=>{for(let i=0;i<n;i++){g.fillStyle='rgba('+(rnd()<.5?'0,0,0':'255,255,255')+','+rnd()*a+')';g.fillRect(rnd()*w,rnd()*h,1+rnd()*2,1+rnd()*2)}};
+const wallT=tex(256,256,(g,w,h)=>{g.fillStyle='#4d5266';g.fillRect(0,0,w,h);
+ for(let x=0;x<w;x+=32){g.fillStyle='rgba(0,0,0,.14)';g.fillRect(x,0,14,h);g.fillStyle='rgba(255,255,255,.04)';g.fillRect(x+14,0,3,h)}
+ for(let i=0;i<5;i++){const x=rnd()*w,y=h*(.3+rnd()*.7),r=g.createRadialGradient(x,y,2,x,y,50);r.addColorStop(0,'rgba(20,15,10,.35)');r.addColorStop(1,'transparent');g.fillStyle=r;g.fillRect(0,0,w,h)}
+ g.fillStyle='#231a14';g.fillRect(0,h*.9,w,h*.1);g.fillStyle='#35271d';g.fillRect(0,h*.88,w,5);grain(g,w,h,900,.25)});
+const floorT=tex(256,256,(g,w,h)=>{for(let y=0;y<h;y+=32){g.fillStyle='hsl(26,'+(30+rnd()*10)+'%,'+(16+rnd()*8)+'%)';g.fillRect(0,y,w,32);g.fillStyle='#120c08';g.fillRect(0,y,w,2);g.fillRect(rnd()*w,y,2,32)}grain(g,w,h,1200,.3)},W*S/4,HR*S/4);
+const ceilT=tex(128,128,(g,w,h)=>{g.fillStyle='#24242e';g.fillRect(0,0,w,h);grain(g,w,h,500,.2)},W*S/4,HR*S/4);
+const winT=tex(128,128,(g,w,h)=>{const q=g.createLinearGradient(0,0,0,h);q.addColorStop(0,'#27406b');q.addColorStop(1,'#9fb8e0');g.fillStyle=q;g.fillRect(0,0,w,h);
+ for(let i=0;i<160;i++){g.fillStyle='rgba(255,255,255,'+(.4+rnd()*.5)+')';g.fillRect(rnd()*w,rnd()*h,1+rnd()*2,2+rnd()*5)}});
+const frameT=tex(128,128,(g,w,h)=>{g.strokeStyle='#1a120c';g.lineWidth=14;g.strokeRect(0,0,w,h);g.lineWidth=6;g.beginPath();g.moveTo(w/2,0);g.lineTo(w/2,h);g.moveTo(0,h/2);g.lineTo(w,h/2);g.stroke()});
+const std=(c,o)=>new THREE.MeshStandardMaterial(Object.assign({color:c,roughness:.9},o||{}));
+const wallM=std(0xffffff,{map:wallT}),box=(w,h,d,m)=>new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);
+const fl=new THREE.Mesh(new THREE.PlaneGeometry(W*S,HR*S),std(0xffffff,{map:floorT}));fl.rotation.x=-Math.PI/2;fl.position.set(W*S/2,0,HR*S/2);scene.add(fl);
+const ce=new THREE.Mesh(new THREE.PlaneGeometry(W*S,HR*S),std(0xffffff,{map:ceilT}));ce.rotation.x=Math.PI/2;ce.position.set(W*S/2,H,HR*S/2);scene.add(ce);
+const objs=[],P={x:0,z:0},E={x:0,z:0,ang:0,st:'patrol',path:[],lost:0,t:0,re:0,tgt:[0,0],sp:0,wt:0,fs:0};
+let led;const wood=std(0x5a3a22),dk=std(0x2b2b33);
+for(let r=0;r<HR;r++)for(let c=0;c<W;c++){const ch=M[r][c],[x,z]=ctr(c,r);let m;
+ if(ch==='#'){m=box(S,H,S,wallM);m.position.set(x,H/2,z);scene.add(m)}
+ else if(ch==='P'){P.x=x;P.z=z}
+ else if(ch==='W'){m=box(2.4,2.8,2.4,wood);m.position.set(x,1.4,z);scene.add(m);const d=box(.05,2.4,.05,dk);d.position.set(x,1.4,z-1.22);scene.add(d);objs.push({t:'wardrobe',x,z,r:3.6,label:'Сховатись'})}
+ else if(ch==='L'){m=box(3.4,.6,3.4,std(0x3a3f52));m.position.set(x,.4,z);scene.add(m);const p=box(1.6,.3,.9,std(0xd8d4c8));p.position.set(x,.8,z-1);scene.add(p)}
+ else if(ch==='K'){m=box(2.4,1.5,2.4,wood);m.position.set(x,.75,z);scene.add(m);const s=box(1.2,.9,1.2,std(0x6e5232));s.position.set(x+.2,1.95,z);s.rotation.y=rnd();scene.add(s)}
+ else if(ch==='T'){m=box(3.2,.15,2.4,wood);m.position.set(x,1,z);scene.add(m);const l=box(.4,1,.4,wood);l.position.set(x,.5,z);scene.add(l)}
+ else if(ch==='S'){m=box(2,1.7,2,dk);m.position.set(x,.85,z);scene.add(m);const k=box(.6,.4,.05,std(0x33ff66,{emissive:0x114422}));k.position.set(x-1.01,1.2,z);k.rotation.y=Math.PI/2;scene.add(k);objs.push({t:'safe',x,z,r:3.6,label:'Сейф'})}
+ else if(ch==='B'){m=box(2,2.2,1,std(0x6b7280));m.position.set(x,1.5,z);scene.add(m);led=box(.4,.4,.1,new THREE.MeshBasicMaterial({color:0xff2222}));led.position.set(x,2,z-.55);scene.add(led);objs.push({t:'box',x,z,r:3.6,label:'Щиток'})}
+ else if(ch==='D'){m=box(2.4,2.8,.5,std(0x2b4a7a));m.position.set(x,1.4,z-1.6);scene.add(m);objs.push({t:'door',x,z,r:3.6,label:'Вихідні двері'})}
+ else if(ch==='F'){m=box(.35,.35,.7,new THREE.MeshBasicMaterial({color:0xffd24a}));m.position.set(x,1,z);scene.add(m);const l=new THREE.PointLight(0xffc040,.8,7);l.position.set(x,1.2,z);scene.add(l);objs.push({t:'fuse',x,z,r:2.6,label:'Підібрати запобіжник',m,l})}
+ else if(ch==='N'){m=box(.6,.04,.8,std(0xe8e0c8,{emissive:0x333322}));m.position.set(x,.1,z);scene.add(m);objs.push({t:'note',x,z,r:2.6,label:'Прочитати записку',m})}}
+[[3,0,'t'],[9,0,'t'],[16,0,'t'],[0,3,'l'],[20,3,'r'],[0,9,'l'],[20,10,'r'],[3,12,'b']].forEach(([c,r,d])=>{
+ const[x,z]=ctr(c,r),pr={t:[x,S-.03,0],b:[x,r*S+.03,Math.PI],l:[S-.03,z,Math.PI/2],r:[c*S+.03,z,-Math.PI/2]}[d];
+ for(const[mt,o]of[[winT,0],[frameT,.01]]){const p=new THREE.Mesh(new THREE.PlaneGeometry(2.2,1.7),new THREE.MeshBasicMaterial({map:mt,transparent:o>0}));
+  const q=d==='t'?[0,0,o]:d==='b'?[0,0,-o]:d==='l'?[o,0,0]:[-o,0,0];p.position.set(pr[0]+q[0],2,pr[1]+q[2]);if(d==='l'||d==='r')p.position.set(pr[0]+q[0],2,pr[1]);p.rotation.y=pr[2];scene.add(p)}});
+for(const c of[3,9,16]){const l=new THREE.PointLight(0xff9a50,.7,16),[x,z]=ctr(c,6);l.position.set(x,2.8,z);scene.add(l)}
+// Господар
+const eg=new THREE.Group(),dm=std(0x1a1410,{roughness:1}),pale=std(0xc9c3b4),eyeM=new THREE.MeshBasicMaterial({color:0xff1010});
+function limb(w,h,d,m,x,y){const g=new THREE.Group(),b=box(w,h,d,m);b.position.y=-h/2;g.add(b);g.position.set(x,y,0);eg.add(g);return g}
+const coat=box(.9,1.1,.5,dm);coat.position.y=1.35;eg.add(coat);
+const lL=limb(.3,.8,.3,dm,-.2,.8),lR=limb(.3,.8,.3,dm,.2,.8),aL=limb(.22,.95,.22,dm,-.56,1.9),aR=limb(.22,.95,.22,dm,.56,1.9);
+const hd=box(.42,.5,.42,pale);hd.position.y=2.15;eg.add(hd);
+const hat=box(.62,.07,.62,dm);hat.position.y=2.42;const hat2=box(.38,.25,.38,dm);hat2.position.y=2.55;eg.add(hat,hat2);
+for(const s of[-.1,.1]){const e=box(.09,.06,.05,eyeM);e.position.set(s,2.2,.22);eg.add(e)}
+const ax=box(.06,1,.06,wood);ax.position.set(0,-.9,.3);aR.add(ax);const bl=box(.05,.3,.4,std(0x9aa0aa));bl.position.set(0,-.5,.5);aR.add(bl);
+scene.add(eg);{const[x,z]=ctr(16,6);E.x=x;E.z=z}
+let st='menu',fuses=0,powered=false,hasKey=false,gotNote=false,hid=false,sv={x:0,z:0},yaw=Math.PI,pitch=0,cur=null,t0=0,walkT=0,beat=0,ac=null,kp=false,stam=1,runB=false,stepT=0,nz=0,dg=[0,0,0],windG=null;
+const mv={x:0,y:0},keys={},code=[0,0,0].map(()=>rnd()*10|0);
+const targets=[[3,2],[9,2],[16,2],[3,6],[16,6],[9,6],[3,9],[9,10],[16,10],[16,3]];
+function toast(s){const t=$('toast');t.textContent=s;t.style.opacity=1;clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.opacity=0,3200)}
+function hud(){$('hud').innerHTML='Запобіжники: '+fuses+'/3<br>Живлення: '+(powered?'є':'немає')+'<br>Код сейфа: '+(gotNote?code.join(''):'???')+'<br>Ключ: '+(hasKey?'є':'немає')}
+hud();
+function bfs(a,b){const q=[a],prev={};prev[a[1]*W+a[0]]=-1;
+ while(q.length){const[c,r]=q.shift();if(c===b[0]&&r===b[1])break;
+  for(const[dc,dr]of[[1,0],[-1,0],[0,1],[0,-1]]){const nc=c+dc,nr=r+dr,k=nr*W+nc;if(solid(nc,nr)||k in prev)continue;prev[k]=r*W+c;q.push([nc,nr])}}
+ const o=[];let k=b[1]*W+b[0];if(!(k in prev))return o;while(prev[k]!==-1){o.unshift([k%W,k/W|0]);k=prev[k]}return o}
+function los(ax,az,bx,bz){const d=Math.hypot(bx-ax,bz-az),n=Math.ceil(d/.5);for(let i=1;i<n;i++){const f=i/n,[c,r]=cell(ax+(bx-ax)*f,az+(bz-az)*f);if(solid(c,r))return false}return true}
+function step(dt,sp){E.sp=0;if(!E.path.length)return true;const[c,r]=E.path[0],[tx,tz]=ctr(c,r),dx=tx-E.x,dz=tz-E.z,d=Math.hypot(dx,dz);
+ if(d<.25){E.path.shift();return !E.path.length}E.x+=dx/d*sp*dt;E.z+=dz/d*sp*dt;E.ang=Math.atan2(dx,dz);E.sp=sp;return false}
+function ns(d,f,v){if(!ac||v<.02)return;const n=ac.sampleRate*d|0,b=ac.createBuffer(1,n,ac.sampleRate),a=b.getChannelData(0);for(let i=0;i<n;i++)a[i]=(rnd()*2-1)*(1-i/n);
+ const s=ac.createBufferSource(),fl=ac.createBiquadFilter(),g=ac.createGain();fl.type='lowpass';fl.frequency.value=f;g.gain.value=v;s.buffer=b;s.connect(fl);fl.connect(g);g.connect(ac.destination);s.start()}
+function thud(v){if(!ac)return;const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=48;o.connect(g);g.connect(ac.destination);const t=ac.currentTime;
+ g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.6*v,t+.03);g.gain.exponentialRampToValueAtTime(.001,t+.3);o.start(t);o.stop(t+.35)}
+function updEnemy(dt){
+ const dx=P.x-E.x,dz=P.z-E.z,dist=Math.hypot(dx,dz)||1,dot=(dx*Math.sin(E.ang)+dz*Math.cos(E.ang))/dist;
+ const see=!hid&&dist<14&&(dist<4||dot>.25)&&los(E.x,E.z,P.x,P.z);E.see=see;
+ if(see){if(E.st!=='chase')E.re=0;E.st='chase';E.lost=0;E.tgt=cell(P.x,P.z)}
+ if(E.st==='chase'){E.re-=dt;if(E.re<=0){E.path=bfs(cell(E.x,E.z),E.tgt);E.re=.3}if(!see)E.lost+=dt;
+  if(see&&!E.path.length){E.x+=dx/dist*4.1*dt;E.z+=dz/dist*4.1*dt;E.ang=Math.atan2(dx,dz);E.sp=4.1}
+  else if(step(dt,4.1)&&!see){E.st='search';E.t=4}
+  if(E.lost>8){E.st='patrol';E.path=[]}}
+ else if(E.st==='search'){E.sp=0;E.t-=dt;E.ang+=dt*1.2;if(E.t<=0){E.st='patrol';E.path=[]}}
+ else{if(!E.path.length)E.path=bfs(cell(E.x,E.z),targets[rnd()*targets.length|0]);step(dt,2.1)}
+ eg.position.set(E.x,0,E.z);eg.rotation.y=E.ang;
+ E.wt+=dt*E.sp*2.2;const sw=E.sp?Math.sin(E.wt)*.7:0;lL.rotation.x=sw;lR.rotation.x=-sw;aL.rotation.x=-sw*.6;aR.rotation.x=E.st==='chase'?-1.2:sw*.6;
+ if(E.sp){E.fs+=dt*E.sp;if(E.fs>5){E.fs=0;ns(.12,200,Math.max(0,.7-dist/22))}}
+ return{dist,caught:(!hid&&dist<1.5&&los(E.x,E.z,P.x,P.z))||(hid&&E.st==='chase'&&dist<2.8)}}
+function free(x,z){return![[.45,.45],[-.45,.45],[.45,-.45],[-.45,-.45]].some(([a,b])=>{const[c,r]=cell(x+a,z+b);return solid(c,r)})}
+function update(dt,t){
+ const dEn=Math.hypot(E.x-P.x,E.z-P.z);let run=false,l=0;
+ if(!hid&&!kp){let ix=mv.x,iy=mv.y;if(joyId===null){ix=(keys.d?1:0)-(keys.a?1:0);iy=(keys.w?1:0)-(keys.s?1:0)}
+  l=Math.hypot(ix,iy);if(l>1){ix/=l;iy/=l}run=(keys.shift||runB)&&stam>.02&&l>.1;const sp=run?5.4:3.2;
+  const fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw),dx=(rx*ix+fx*iy)*sp*dt,dz=(rz*ix+fz*iy)*sp*dt;
+  if(free(P.x+dx,P.z))P.x+=dx;if(free(P.x,P.z+dz))P.z+=dz;
+  if(l>.1){walkT+=dt;stepT+=dt*(run?2.8:1.8);if(stepT>1){stepT=0;ns(.07,350,run?.45:.15)}}}
+ stam=Math.max(0,Math.min(1,stam+(run?-.28:.16)*dt));$('stam').style.width=stam*100+'%';
+ if(run){nz+=dt;if(nz>.7&&E.st==='patrol'&&dEn<13){E.st='chase';E.lost=3;E.re=0;E.tgt=cell(P.x,P.z);nz=0}}else nz=0;
+ let best=null,bd=1e9;if(!hid&&!kp)for(const o of objs){if(o.done)continue;const d=Math.hypot(o.x-P.x,o.z-P.z);if(d<o.r&&d<bd){bd=d;best=o}}
+ cur=best;$('prompt').textContent=hid?'Вийти з шафи':best?best.label:'';$('act').classList.toggle('on',hid||!!best);
+ cam.position.set(P.x,(hid?1.5:1.6)+(hid?0:Math.sin(walkT*9)*.04),P.z);cam.rotation.set(pitch,yaw,0);
+ spot.intensity=1.9*(dEn<9&&rnd()<.08?.15:1);
+ winT.offset.y-=dt*.5;winT.offset.x+=dt*.15;
+ for(const o of objs)if(o.t==='fuse'&&!o.done){o.m.rotation.y+=dt*2;o.m.position.y=1+Math.sin(t/400)*.1}
+ if(powered)led.material.color.set(0x33ff66);
+ if(windG)windG.gain.value=.07+.05*Math.sin(t/1500);
+ const e=updEnemy(dt),dg2=E.st==='chase'?1:Math.max(0,1-e.dist/16);
+ $('vig').classList.toggle('d',E.st==='chase'&&E.see);
+ if(dg2>.1){beat-=dt;if(beat<=0){thud(dg2);beat=1.2-dg2*.8}}
+ if(e.caught)end(false)}
+function end(win){st=win?'win':'over';const sec=Math.round((performance.now()-t0)/1000);$('ov').style.display='flex';
+ $('ov').innerHTML=win?'<h1>ТИ ВИБРАВСЯ</h1><p>Двері розчахнулись, і завірюха проковтнула твій слід. Час: '+sec+' с.</p><button onclick="location.reload()">ГРАТИ ЗНОВУ</button>'
+ :'<h1 style="color:#d33">ТЕБЕ ЗЛОВИЛИ</h1><p>Господар знайшов тебе в темряві. Не біжи без потреби і пам’ятай про шафи.</p><button onclick="location.reload()">СПРОБУВАТИ ЩЕ</button>'}
+function kpr(){$('digs').innerHTML=dg.map((d,i)=>'<div><button onclick="bump('+i+',1)">▲</button><b>'+d+'</b><button onclick="bump('+i+',-1)">▼</button></div>').join('')}
+function bump(i,s){dg[i]=(dg[i]+s+10)%10;kpr()}
+$('ok').onclick=()=>{if(dg.join('')===code.join('')){hasKey=true;hud();toast('Сейф відчинено. У ньому ключ!')}else toast('Невірний код');kp=false;$('kp').style.display='none'};
+$('cl').onclick=()=>{kp=false;$('kp').style.display='none'};
+function interact(){if(st!=='play'||kp)return;if(hid){hid=false;P.x=sv.x;P.z=sv.z;return}
+ const o=cur;if(!o)return;
+ if(o.t==='fuse'){o.done=true;scene.remove(o.m,o.l);fuses++;hud();toast('Запобіжник знайдено ('+fuses+'/3)')}
+ else if(o.t==='note'){o.done=true;scene.remove(o.m);gotNote=true;hud();toast('Записка: код сейфа '+code.join(''))}
+ else if(o.t==='box'){if(powered)return;if(fuses<3)toast('У щитку не вистачає запобіжників: '+fuses+'/3');
+  else{powered=true;hud();toast('Живлення ввімкнено! Господар почув шум…');E.st='chase';E.lost=0;E.re=0;E.path=[];E.tgt=cell(o.x,o.z)}}
+ else if(o.t==='safe'){if(hasKey)toast('Сейф порожній');else{kp=true;dg=[0,0,0];kpr();$('kp').style.display='flex'}}
+ else if(o.t==='door'){if(!powered)toast('Двері під електрозамком. Спершу ввімкни живлення.');else if(!hasKey)toast('Потрібен ключ. Він у сейфі.');else end(true)}
+ else if(o.t==='wardrobe'){hid=true;sv={x:P.x,z:P.z};P.x=o.x;P.z=o.z;toast('Ти ховаєшся. Не рухайся.')}}
+$('act').addEventListener('click',interact);
+const kk=k=>({arrowup:'w',arrowdown:'s',arrowleft:'a',arrowright:'d'}[k]||k);
+addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(k==='e'||k===' ')interact();keys[kk(k)]=true});
+addEventListener('keyup',e=>keys[kk(e.key.toLowerCase())]=false);
+const rb=$('run');rb.addEventListener('pointerdown',()=>runB=true);for(const n of['pointerup','pointerleave','pointercancel'])rb.addEventListener(n,()=>runB=false);
+let joyId=null,lookId=null,lx=0,ly=0,drag=false;const joy=$('joy'),knob=$('knob');
+function setJoy(t){const r=joy.getBoundingClientRect();let dx=t.clientX-r.left-60,dy=t.clientY-r.top-60;const l=Math.hypot(dx,dy);if(l>50){dx*=50/l;dy*=50/l}knob.style.transform='translate('+dx+'px,'+dy+'px)';mv.x=dx/50;mv.y=-dy/50}
+const look=(dx,dy)=>{yaw-=dx*.006;pitch=Math.max(-1.2,Math.min(1.2,pitch-dy*.006))};
+addEventListener('touchstart',e=>{for(const t of e.changedTouches){
+ if(joy.contains(t.target)&&joyId===null){joyId=t.identifier;setJoy(t);e.preventDefault()}
+ else if(!t.target.closest('button,#kp')&&lookId===null){lookId=t.identifier;lx=t.clientX;ly=t.clientY;e.preventDefault()}}},{passive:false});
+addEventListener('touchmove',e=>{for(const t of e.changedTouches){if(t.identifier===joyId)setJoy(t);else if(t.identifier===lookId){look(t.clientX-lx,t.clientY-ly);lx=t.clientX;ly=t.clientY}}e.preventDefault()},{passive:false});
+const tend=e=>{for(const t of e.changedTouches){if(t.identifier===joyId){joyId=null;mv.x=mv.y=0;knob.style.transform=''}if(t.identifier===lookId)lookId=null}};
+addEventListener('touchend',tend);addEventListener('touchcancel',tend);
+$('c').addEventListener('mousedown',e=>{drag=true;lx=e.clientX;ly=e.clientY});addEventListener('mouseup',()=>drag=false);
+addEventListener('mousemove',e=>{if(drag){look(e.clientX-lx,e.clientY-ly);lx=e.clientX;ly=e.clientY}});
+$('go').onclick=()=>{try{ac=new(window.AudioContext||window.webkitAudioContext)();const n=ac.sampleRate*2,b=ac.createBuffer(1,n,ac.sampleRate),a=b.getChannelData(0);let p=0;
+ for(let i=0;i<n;i++){p=p*.98+(rnd()*2-1)*.1;a[i]=p}const s=ac.createBufferSource(),f=ac.createBiquadFilter();windG=ac.createGain();s.buffer=b;s.loop=true;f.type='lowpass';f.frequency.value=500;s.connect(f);f.connect(windG);windG.connect(ac.destination);s.start()}catch(e){}
+ try{document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen()}catch(e){}
+ $('ov').style.display='none';st='play';t0=performance.now();toast('Знайди запобіжники, записку з кодом і ключ')};
+let last=0;
+function tick(t){requestAnimationFrame(tick);const dt=Math.min(.05,(t-last)/1000);last=t;
+ if(st==='play')update(dt,t);else if(st==='menu'){cam.position.set(P.x,1.6,P.z);cam.rotation.set(0,yaw,0);winT.offset.y-=dt*.5}
+ renderer.render(scene,cam)}
+requestAnimationFrame(tick);
+</script></body></html>
